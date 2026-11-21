@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# marimo session state
+__marimo__/
+
+# model weights (download separately)
+*.pb
+*.onnx
+
+# generated data (rebuild with ./refresh.sh)
+cache/
+db.npz
+db.csv
+mpd_dump.csv
+*.tmp
