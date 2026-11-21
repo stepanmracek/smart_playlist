@@ -9,6 +9,8 @@ from mpd import MPDClient
 
 MUSIC_DIR = Path(os.environ.get("MUSIC_DIR", "/home/stepo/Hudba"))
 TOP_N = 5  # pick the next song randomly from this many best candidates
+HISTORY_K = int(os.environ.get("HISTORY_K", 3))  # average embeddings of this many songs up to the current one
+RECENT_N = 10  # artists and songs from this many last queue songs are not picked again
 
 
 def connect_mpd() -> MPDClient:
@@ -48,14 +50,18 @@ class SongDB:
 
 
 def on_song_start(
-    client: MPDClient, db: SongDB, path: str, recent_artists: set[str], recent_paths: set[str]
+    client: MPDClient, db: SongDB, history: list[str], recent_artists: set[str], recent_paths: set[str]
 ) -> None:
-    idx = db.index.get(path)
-    if idx is None:
+    """history: paths of the last HISTORY_K queue songs, ending with the current one."""
+    path = history[-1]
+    if path not in db.index:
         return
 
-    # embeddings are L2-normalized, so the dot product is cosine similarity
-    similarity = db.embeddings @ db.embeddings[idx]
+    # mean of history embeddings (songs not in DB are skipped), re-normalized so the
+    # dot product with the L2-normalized DB embeddings is cosine similarity
+    query = db.embeddings[[db.index[p] for p in history if p in db.index]].mean(axis=0)
+    query /= np.linalg.norm(query)
+    similarity = db.embeddings @ query
     candidates = []
     for candidate in np.argsort(-similarity):
         # path check also covers the current song and songs without artist tags
@@ -89,12 +95,21 @@ def watch_song_changes(client: MPDClient, db: SongDB) -> None:
             if songs_left >= 3:
                 last_songid = songid
                 continue
-            start = max(length - 10, 0)
-            tail = client.playlistinfo((start, length))
-            artists = set().union(*(song_artists(song) for song in tail))
-            # current song is among the last 3, so it's always within tail
-            current = tail[int(status["song"]) - start]
-            on_song_start(client, db, current["file"], artists, {song["file"] for song in tail})
+            current = int(status["song"])
+            # Fetch one slice of the queue that covers both windows we need:
+            # - recent: the last RECENT_N queue songs (their artists and paths
+            #   must not be picked again)
+            # - history: the last HISTORY_K songs up to and including the current
+            #   one (their embeddings are averaged to find the next song)
+            # The current song is among the last 3, so with a large HISTORY_K the
+            # history window can start before the recent one; start at whichever
+            # begins first (never below queue position 0).
+            start = max(min(length - RECENT_N, current - HISTORY_K + 1), 0)
+            songs = client.playlistinfo((start, length))
+            recent = songs[-RECENT_N:]
+            artists = set().union(*(song_artists(song) for song in recent))
+            history = [song["file"] for song in songs[: current - start + 1][-HISTORY_K:]]
+            on_song_start(client, db, history, artists, {song["file"] for song in recent})
         last_songid = songid
 
 
