@@ -10,10 +10,10 @@ embeddings.
 ## Requirements
 
 - MPD server and `mpc`
-- Python with `python-mpd2`, `numpy`, `tqdm`, `av` (PyAV), `onnxruntime`,
-  `huggingface_hub`
-- The ONNX effnet model is downloaded automatically from Hugging Face
-  ([Heyian/discogs-effnet-onnx](https://huggingface.co/Heyian/discogs-effnet-onnx))
+- Python with `python-mpd2`, `numpy`, `tqdm`, `av` (PyAV), `onnxruntime`
+- The ONNX effnet model (`discogs-effnet-bsdynamic-1.onnx`, from
+  [Heyian/discogs-effnet-onnx](https://huggingface.co/Heyian/discogs-effnet-onnx),
+  pinned revision, checksum verified) is downloaded into the project directory
   on the first run of `emb_extract.py`. The exploration notebooks additionally
   need `essentia-tensorflow` and `discogs-effnet-bs64-1.pb`.
 - Music files accessible locally under the same layout as MPD's music directory

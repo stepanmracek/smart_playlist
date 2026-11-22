@@ -20,20 +20,24 @@ import os
 import pickle
 import re
 import sys
-from hashlib import md5
+import urllib.request
+from hashlib import md5, sha256
 from pathlib import Path
 
 import av
 import numpy as np
 import onnxruntime as ort
-from huggingface_hub import hf_hub_download
 from tqdm import tqdm
 
 from smart_playlist import MUSIC_DIR
 
 PREFIX = "effnet"
 CACHE_DIR = Path("cache")
-MODEL_REPO, MODEL_FILE = "Heyian/discogs-effnet-onnx", "discogs-effnet-bsdynamic-1.onnx"
+MODEL_PATH = Path("discogs-effnet-bsdynamic-1.onnx")
+# pinned revision + checksum, so the model can't change under existing embeddings
+MODEL_URL = ("https://huggingface.co/Heyian/discogs-effnet-onnx/resolve/"
+             "99d4b0ef1fd5d798f2afe049285c7d551e768e07/discogs-effnet-bsdynamic-1.onnx")
+MODEL_SHA256 = "a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c"
 SR = 16_000
 MAX_SEC = 60
 FRAME, HOP = 512, 256  # mel spectrogram framing (essentia's TensorflowInputMusiCNN)
@@ -223,10 +227,23 @@ def patches(mel: np.ndarray) -> np.ndarray:
 
 # --- model -----------------------------------------------------------------------
 
+def model_file() -> Path:
+    """Path to the ONNX model, downloaded on first use."""
+    if not MODEL_PATH.exists():
+        print(f"downloading {MODEL_URL}")
+        with urllib.request.urlopen(MODEL_URL) as resp:
+            data = resp.read()
+        if sha256(data).hexdigest() != MODEL_SHA256:
+            sys.exit(f"{MODEL_URL}: checksum mismatch, not using it")
+        tmp = MODEL_PATH.with_name(MODEL_PATH.name + ".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, MODEL_PATH)
+    return MODEL_PATH
+
+
 def load_model():
-    """ONNX session for the model (downloaded once, then cached by huggingface_hub)."""
-    sess = ort.InferenceSession(hf_hub_download(MODEL_REPO, MODEL_FILE),
-                                providers=["CPUExecutionProvider"])
+    """ONNX session for the model."""
+    sess = ort.InferenceSession(str(model_file()), providers=["CPUExecutionProvider"])
     emb_out = next(o.name for o in sess.get_outputs() if o.shape[-1] == 1280)
     return sess, sess.get_inputs()[0].name, emb_out
 
