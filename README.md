@@ -10,9 +10,12 @@ embeddings.
 ## Requirements
 
 - MPD server and `mpc`
-- Python with `python-mpd2`, `numpy`, `tqdm`, `essentia-tensorflow`
-- Effnet model `discogs-effnet-bs64-1.pb` in the project directory
-  (from <https://essentia.upf.edu/models/feature-extractors/discogs-effnet/>)
+- Python with `python-mpd2`, `numpy`, `tqdm`, `av` (PyAV), `onnxruntime`,
+  `huggingface_hub`
+- The ONNX effnet model is downloaded automatically from Hugging Face
+  ([Heyian/discogs-effnet-onnx](https://huggingface.co/Heyian/discogs-effnet-onnx))
+  on the first run of `emb_extract.py`. The exploration notebooks additionally
+  need `essentia-tensorflow` and `discogs-effnet-bs64-1.pb`.
 - Music files accessible locally under the same layout as MPD's music directory
 
 ## Configuration
@@ -59,8 +62,9 @@ among the last 10 queued songs, and appended to the queue.
    (`embeddings`, L2-normalized, float32) and `db.csv` (row *i* ↔ embedding *i*).
    Songs without an embedding are skipped.
 
-Embeddings are cached in `cache/<prefix>-<md5 of full local path>` as pickled
-numpy arrays, so moved/renamed files are recomputed.
+Embeddings are cached in `cache/<prefix>-<md5 of path relative to the music
+directory>` as pickled numpy arrays (the relative path is MPD's song path), so
+moving the whole library keeps the cache; renamed files are recomputed.
 
 ## Other files
 
