@@ -29,8 +29,8 @@ MAX_SEC = 60
 CACHE_NAME_RE = re.compile(rf"^{re.escape(PREFIX)}-[0-9a-f]{{32}}$")
 
 
-def cache_path(full_path: str) -> Path:
-    return CACHE_DIR / f"{PREFIX}-{md5(full_path.encode()).hexdigest()}"
+def cache_path(rel_path: str) -> Path:
+    return CACHE_DIR / f"{PREFIX}-{md5(rel_path.encode()).hexdigest()}"
 
 
 def load_model():
@@ -67,11 +67,11 @@ def save_atomic(path: Path, emb: np.ndarray) -> None:
 
 def main(dry_run: bool, dump_path: str = "mpd_dump.csv") -> None:
     with open(dump_path, newline="", encoding="utf-8") as f:
-        full_paths = [str(MUSIC_DIR / row["path"]) for row in csv.DictReader(f)]
-    if not full_paths:
+        rel_paths = [row["path"] for row in csv.DictReader(f)]
+    if not rel_paths:
         sys.exit(f"{dump_path} has no songs, refusing to touch the cache")
 
-    expected = {cache_path(p).name: p for p in full_paths}
+    expected = {cache_path(p).name: p for p in rel_paths}
     cached = {p.name for p in CACHE_DIR.iterdir() if CACHE_NAME_RE.match(p.name)}
 
     to_delete = sorted(cached - expected.keys())
@@ -89,12 +89,13 @@ def main(dry_run: bool, dump_path: str = "mpd_dump.csv") -> None:
         return
     model = load_model()
     failed = []
-    for full_path in tqdm(sorted(to_add)):
+    for rel_path in tqdm(sorted(to_add)):
         try:
-            save_atomic(cache_path(full_path), extract_emb(model, full_path))
+            emb = extract_emb(model, str(MUSIC_DIR / rel_path))
+            save_atomic(cache_path(rel_path), emb)
         except Exception as ex:
-            failed.append(full_path)
-            tqdm.write(f"{full_path} -> {ex}")
+            failed.append(rel_path)
+            tqdm.write(f"{rel_path} -> {ex}")
     print(f"computed {len(to_add) - len(failed)}, failed {len(failed)}")
 
 

@@ -14,14 +14,11 @@ from pathlib import Path
 
 import numpy as np
 
-from smart_playlist import MUSIC_DIR
-
 CACHE_DIR = Path("cache")
 
 
 def load_embedding(prefix: str, rel_path: str) -> np.ndarray | None:
-    full_path = str(MUSIC_DIR / rel_path)
-    cached = CACHE_DIR / f"{prefix}-{md5(full_path.encode()).hexdigest()}"
+    cached = CACHE_DIR / f"{prefix}-{md5(rel_path.encode()).hexdigest()}"
     if not cached.exists():
         return None
     with open(cached, "rb") as f:

@@ -25,8 +25,9 @@ with app.setup:
 def _():
     MODEL_FILE = "discogs-effnet-bs64-1.pb"
     SR = 16_000
-    MAX_SEC = 60 
-    return MAX_SEC, MODEL_FILE, SR
+    MAX_SEC = 60
+    MUSIC_DIR = Path("/home/stepo/Hudba")
+    return MAX_SEC, MODEL_FILE, MUSIC_DIR, SR
 
 
 @app.cell
@@ -36,17 +37,17 @@ def _(MODEL_FILE):
 
 
 @app.cell
-def _():
-    files = sorted(glob("/home/stepo/Hudba/*/*/*.mp3"))
+def _(MUSIC_DIR):
+    files = sorted(glob(str(MUSIC_DIR / "*/*/*.mp3")))
     random.seed(42)
     random.shuffle(files)
     return (files,)
 
 
 @app.cell
-def _(MAX_SEC, SR, model):
+def _(MAX_SEC, MUSIC_DIR, SR, model):
     def extract_emb(file):
-        cached_path = Path("cache") / ("effnet-" + md5(file.encode()).hexdigest())
+        cached_path = Path("cache") / ("effnet-" + md5(str(Path(file).relative_to(MUSIC_DIR)).encode()).hexdigest())
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)

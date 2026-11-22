@@ -27,7 +27,8 @@ def _():
     MAX_SEC = 60
     PATCH_SIZE = 128   # frames per patch (~2 s)
     PATCH_HOP = 62     # Essentia's default for this model
-    return MAX_SEC, PATCH_HOP, PATCH_SIZE, REPO, SR
+    MUSIC_DIR = Path("/home/stepo/Hudba")
+    return MAX_SEC, MUSIC_DIR, PATCH_HOP, PATCH_SIZE, REPO, SR
 
 
 @app.cell
@@ -80,9 +81,9 @@ def _(PATCH_HOP, PATCH_SIZE):
 
 
 @app.cell
-def _(emb_idx, input_name, make_patches, melspec, sess):
+def _(MUSIC_DIR, emb_idx, input_name, make_patches, melspec, sess):
     def embed(path):
-        cached_path = Path("cache") / ("effnet-onnx-" + md5(path.encode()).hexdigest())
+        cached_path = Path("cache") / ("effnet-onnx-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)
@@ -102,8 +103,8 @@ def _(emb_idx, input_name, make_patches, melspec, sess):
 
 
 @app.cell
-def _():
-    files = sorted(glob("/home/stepo/Hudba/*/*/*.mp3"))
+def _(MUSIC_DIR):
+    files = sorted(glob(str(MUSIC_DIR / "*/*/*.mp3")))
     random.seed(42)
     files = random.sample(files, 1000)
     files[:10]

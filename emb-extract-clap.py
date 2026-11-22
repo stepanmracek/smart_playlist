@@ -25,7 +25,8 @@ def _():
     SR = 48_000
     CHUNK_SEC = 10
     MAX_SEC = 60
-    return CHUNK_SEC, MAX_SEC, MODEL_NAME, SR
+    MUSIC_DIR = Path("/home/stepo/Hudba")
+    return CHUNK_SEC, MAX_SEC, MODEL_NAME, MUSIC_DIR, SR
 
 
 @app.cell
@@ -36,10 +37,10 @@ def _(MODEL_NAME):
 
 
 @app.cell
-def _(CHUNK_SEC, MAX_SEC, SR, model, processor):
+def _(CHUNK_SEC, MAX_SEC, MUSIC_DIR, SR, model, processor):
     @torch.no_grad()
     def embed(path):
-        cached_path = Path("cache") / ("clap-" + md5(path.encode()).hexdigest())
+        cached_path = Path("cache") / ("clap-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)
@@ -77,8 +78,8 @@ def _(CHUNK_SEC, MAX_SEC, SR, model, processor):
 
 
 @app.cell
-def _():
-    files = sorted(glob("/home/stepo/Hudba/*/*/*.mp3"))
+def _(MUSIC_DIR):
+    files = sorted(glob(str(MUSIC_DIR / "*/*/*.mp3")))
     random.seed(42)
     random.shuffle(files)
     #files = random.sample(files, 100)
