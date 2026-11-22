@@ -27,6 +27,8 @@ Environment variables:
 | `MPD_HOST`  | `localhost`         | MPD host, may be `password@host`                 |
 | `MPD_PORT`  | `6600`              | MPD port                                         |
 | `MUSIC_DIR` | `/home/stepo/Hudba` | local path of MPD's music directory              |
+| `HISTORY_K` | `3`                 | average embeddings of this many last songs       |
+| `CSLS_K`    | `10`                | CSLS neighbourhood size against hubs; `0` = plain cosine similarity |
 
 ## Usage
 

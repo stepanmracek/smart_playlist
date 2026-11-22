@@ -11,6 +11,9 @@ MUSIC_DIR = Path(os.environ.get("MUSIC_DIR", "/home/stepo/Hudba"))
 TOP_N = 5  # pick the next song randomly from this many best candidates
 HISTORY_K = int(os.environ.get("HISTORY_K", 3))  # average embeddings of this many songs up to the current one
 RECENT_N = 10  # artists and songs from this many last queue songs are not picked again
+# CSLS ranking against hubs: candidates are ranked by 2*cos - r, where r is the mean
+# similarity of a song to its CSLS_K nearest neighbours (0 = plain cosine similarity)
+CSLS_K = int(os.environ.get("CSLS_K", 10))
 
 
 def connect_mpd() -> MPDClient:
@@ -36,6 +39,7 @@ class SongDB:
     artists: list[set[str]]
     embeddings: np.ndarray  # (n, dim), L2-normalized
     index: dict[str, int]  # path -> row
+    density: np.ndarray  # (n,) CSLS penalty r: mean similarity to own CSLS_K nearest neighbours
 
     @classmethod
     def load(cls, csv_path: str = "db.csv", npz_path: str = "db.npz") -> "SongDB":
@@ -46,7 +50,22 @@ class SongDB:
         paths = [row["path"] for row in rows]
         # mpd_dump joins multiple artist tags with "; "
         artists = [set(filter(None, row["artist"].split("; "))) for row in rows]
-        return cls(paths, artists, embeddings, {p: i for i, p in enumerate(paths)})
+        index = {p: i for i, p in enumerate(paths)}
+        return cls(paths, artists, embeddings, index, neighbourhood_density(embeddings, CSLS_K))
+
+
+def neighbourhood_density(embeddings: np.ndarray, k: int, chunk: int = 1000) -> np.ndarray:
+    """Mean cosine similarity of each song to its k nearest neighbours (zeros if k == 0).
+    Hubs sit in dense regions (high value) and get penalized by CSLS; isolated songs
+    get a boost. Computed in chunks to keep memory low."""
+    density = np.zeros(len(embeddings), np.float32)
+    if k == 0:
+        return density
+    for start in range(0, len(embeddings), chunk):
+        sims = embeddings[start:start + chunk] @ embeddings.T
+        sims[np.arange(len(sims)), np.arange(start, start + len(sims))] = -np.inf  # not itself
+        density[start:start + chunk] = np.partition(sims, -k, axis=1)[:, -k:].mean(axis=1)
+    return density
 
 
 def on_song_start(
@@ -62,8 +81,10 @@ def on_song_start(
     query = db.embeddings[[db.index[p] for p in history if p in db.index]].mean(axis=0)
     query /= np.linalg.norm(query)
     similarity = db.embeddings @ query
+    # CSLS: 2*cos(query, song) - r(song) - r(query); r(query) is the same for all songs
+    score = 2 * similarity - db.density
     candidates = []
-    for candidate in np.argsort(-similarity):
+    for candidate in np.argsort(-score):
         # path check also covers the current song and songs without artist tags
         if db.paths[candidate] not in recent_paths and not db.artists[candidate] & recent_artists:
             candidates.append(candidate)
