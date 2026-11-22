@@ -9,11 +9,19 @@ from mpd import MPDClient
 
 MUSIC_DIR = Path(os.environ.get("MUSIC_DIR", "/home/stepo/Hudba"))
 TOP_N = 5  # pick the next song randomly from this many best candidates
-HISTORY_K = int(os.environ.get("HISTORY_K", 3))  # average embeddings of this many songs up to the current one
+# the query is a weighted average of the embeddings of the current song and the ones
+# before it (current song first): the current song drives the transition, older
+# songs gently anchor it and slow down drift
+HISTORY_WEIGHTS = tuple(float(w) for w in os.environ.get("HISTORY_WEIGHTS", "0.6,0.3,0.1").split(","))
+HISTORY_K = len(HISTORY_WEIGHTS)
 RECENT_N = 10  # artists and songs from this many last queue songs are not picked again
 # CSLS ranking against hubs: candidates are ranked by 2*cos - r, where r is the mean
 # similarity of a song to its CSLS_K nearest neighbours (0 = plain cosine similarity)
 CSLS_K = int(os.environ.get("CSLS_K", 10))
+# rank in a centered space (global mean embedding subtracted, re-normalized): averaging
+# history embeddings pulls the query towards the global mean, where hubs live;
+# centering removes that shared direction
+CENTER = os.environ.get("CENTER", "1") != "0"
 
 
 def connect_mpd() -> MPDClient:
@@ -37,9 +45,10 @@ def connect_mpd() -> MPDClient:
 class SongDB:
     paths: list[str]  # MPD paths, relative to MUSIC_DIR
     artists: list[set[str]]
-    embeddings: np.ndarray  # (n, dim), L2-normalized
+    embeddings: np.ndarray  # (n, dim), L2-normalized, as in db.npz
     index: dict[str, int]  # path -> row
-    density: np.ndarray  # (n,) CSLS penalty r: mean similarity to own CSLS_K nearest neighbours
+    search: np.ndarray  # (n, dim) embeddings used for ranking: centered + re-normalized if CENTER
+    density: np.ndarray  # (n,) CSLS penalty r: mean similarity (in search space) to own CSLS_K nearest neighbours
 
     @classmethod
     def load(cls, csv_path: str = "db.csv", npz_path: str = "db.npz") -> "SongDB":
@@ -51,7 +60,11 @@ class SongDB:
         # mpd_dump joins multiple artist tags with "; "
         artists = [set(filter(None, row["artist"].split("; "))) for row in rows]
         index = {p: i for i, p in enumerate(paths)}
-        return cls(paths, artists, embeddings, index, neighbourhood_density(embeddings, CSLS_K))
+        search = embeddings
+        if CENTER:
+            search = embeddings - embeddings.mean(axis=0)
+            search /= np.linalg.norm(search, axis=1, keepdims=True)
+        return cls(paths, artists, embeddings, index, search, neighbourhood_density(search, CSLS_K))
 
 
 def neighbourhood_density(embeddings: np.ndarray, k: int, chunk: int = 1000) -> np.ndarray:
@@ -69,20 +82,26 @@ def neighbourhood_density(embeddings: np.ndarray, k: int, chunk: int = 1000) -> 
 
 
 def on_song_start(
-    client: MPDClient, db: SongDB, history: list[str], recent_artists: set[str], recent_paths: set[str]
+    client: MPDClient,
+    db: SongDB,
+    history: list[str],
+    recent_artists: set[str],
+    recent_paths: set[str],
+    weights: tuple[float, ...] = HISTORY_WEIGHTS,
 ) -> None:
-    """history: paths of the last HISTORY_K queue songs, ending with the current one."""
+    """history: paths of the last len(weights) queue songs, ending with the current one."""
     path = history[-1]
     if path not in db.index:
         return
 
-    # mean of history embeddings (songs not in DB are skipped), re-normalized so the
-    # dot product with the L2-normalized DB embeddings is cosine similarity
-    query = db.embeddings[[db.index[p] for p in history if p in db.index]].mean(axis=0)
+    # weighted average of history embeddings (weights[0] for the current song; songs
+    # not in DB are skipped), re-normalized so the dot product with the L2-normalized
+    # DB embeddings is cosine similarity
+    rows = [(db.index[p], w) for p, w in zip(reversed(history), weights) if p in db.index]
+    query = sum(w * db.search[i] for i, w in rows)
     query /= np.linalg.norm(query)
-    similarity = db.embeddings @ query
     # CSLS: 2*cos(query, song) - r(song) - r(query); r(query) is the same for all songs
-    score = 2 * similarity - db.density
+    score = 2 * (db.search @ query) - db.density
     candidates = []
     for candidate in np.argsort(-score):
         # path check also covers the current song and songs without artist tags
@@ -96,7 +115,8 @@ def on_song_start(
     chosen = random.choice(candidates)
     next_path = db.paths[chosen]
     client.add(next_path)
-    print(f"{path} -> {next_path} (similarity {similarity[chosen]:.3f})", flush=True)
+    similarity = db.embeddings[chosen] @ db.embeddings[db.index[path]]  # plain cosine, for the log
+    print(f"{path} -> {next_path} (similarity {similarity:.3f})", flush=True)
 
 
 def song_artists(song: dict) -> set[str]:

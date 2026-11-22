@@ -32,8 +32,9 @@ Environment variables:
 | `MPD_HOST`  | `localhost`         | MPD host, may be `password@host`                 |
 | `MPD_PORT`  | `6600`              | MPD port                                         |
 | `MUSIC_DIR` | `/home/stepo/Hudba` | local path of MPD's music directory              |
-| `HISTORY_K` | `3`                 | average embeddings of this many last songs       |
+| `HISTORY_WEIGHTS` | `0.6,0.3,0.1` | weights of the current song and the ones before it in the query (weighted average of embeddings) |
 | `CSLS_K`    | `10`                | CSLS neighbourhood size against hubs; `0` = plain cosine similarity |
+| `CENTER`    | `1`                 | rank in a centered embedding space (global mean subtracted), against the pull of averaged queries towards hubs; `0` = off |
 
 ## Usage
 
@@ -53,7 +54,11 @@ uv run smart_playlist.py
 
 When a new song starts and fewer than 3 songs are left after it, a song is
 randomly picked from the `TOP_N` (5) most similar candidates whose artist isn't
-among the last 10 queued songs, and appended to the queue.
+among the last 10 queued songs, and appended to the queue. Similar to a
+weighted average of the current song and the two before it (mostly the current
+one, the older ones slow down drift), ranked by
+[CSLS](https://arxiv.org/abs/1710.04087) in a centered embedding space so that
+"hub" songs don't keep coming back.
 
 ## Pipeline
 

@@ -1,6 +1,10 @@
 """Simulate smart playlists offline (no MPD) to compare settings.
 
-Usage: python simulate.py <seed path> [--k 1,3,5,10] [--runs 10] [--length 20] [--show 2]
+Usage: python simulate.py <seed path> [--weights 0.6,0.3,0.1 1,1,1 ...] [--runs 10]
+                          [--length 20] [--show 2]
+
+--weights: history weight settings to compare (current song first; default
+HISTORY_WEIGHTS). CSLS_K and CENTER are read from the environment like in the daemon.
 """
 
 import argparse
@@ -12,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from smart_playlist import RECENT_N, SongDB, on_song_start
+from smart_playlist import HISTORY_WEIGHTS, RECENT_N, SongDB, on_song_start
 
 
 class FakeClient:
@@ -23,7 +27,7 @@ class FakeClient:
         self.queue.append(path)
 
 
-def simulate(db: SongDB, seed: str, k: int, length: int) -> list[str]:
+def simulate(db: SongDB, seed: str, weights: tuple[float, ...], length: int) -> list[str]:
     queue = [seed]
     client = FakeClient(queue)
     pos = 0
@@ -32,9 +36,9 @@ def simulate(db: SongDB, seed: str, k: int, length: int) -> list[str]:
         if len(queue) - pos - 1 < 3:
             recent = queue[-RECENT_N:]
             artists = set().union(*(db.artists[db.index[p]] for p in recent))
-            history = queue[: pos + 1][-k:]
+            history = queue[: pos + 1][-len(weights):]
             with contextlib.redirect_stdout(io.StringIO()):
-                on_song_start(client, db, history, artists, set(recent))
+                on_song_start(client, db, history, artists, set(recent), weights)
         pos += 1
     return queue
 
@@ -46,7 +50,7 @@ def label(db: SongDB, path: str) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("seed")
-    ap.add_argument("--k", default="1,3,5,10")
+    ap.add_argument("--weights", nargs="+", default=[",".join(map(str, HISTORY_WEIGHTS))])
     ap.add_argument("--runs", type=int, default=10)
     ap.add_argument("--length", type=int, default=20)
     ap.add_argument("--show", type=int, default=2, help="example playlists printed per K")
@@ -56,11 +60,12 @@ def main() -> None:
     seed_emb = db.embeddings[db.index[args.seed]]
     checkpoints = [p for p in (5, 10, 15, 20) if p <= args.length]
 
-    for k in map(int, args.k.split(",")):
+    for weights_arg in args.weights:
+        weights = tuple(float(w) for w in weights_arg.split(","))
         playlists = []
         for run in range(args.runs):
             random.seed(run)
-            playlists.append(simulate(db, args.seed, k, args.length))
+            playlists.append(simulate(db, args.seed, weights, args.length))
 
         sims = np.array([[db.embeddings[db.index[p]] @ seed_emb for p in pl] for pl in playlists])
         steps = np.array([[db.embeddings[db.index[a]] @ db.embeddings[db.index[b]]
@@ -68,7 +73,7 @@ def main() -> None:
         songs = Counter(p for pl in playlists for p in pl[1:])
         artists = [len(set().union(*(db.artists[db.index[p]] for p in pl))) for pl in playlists]
 
-        print(f"=== K = {k} ===")
+        print(f"=== weights {weights_arg} ===")
         print("similarity to seed at position " + ", ".join(
             f"{p}: {sims[:, p - 1].mean():.3f}" for p in checkpoints))
         print(f"mean similarity between consecutive songs: {steps.mean():.3f}")
