@@ -70,9 +70,10 @@ moving the whole library keeps the cache; renamed files are recomputed.
 
 ## Other files
 
-- `emb-extract-effnet.py`, `emb-extract-effnet-onnx.py`, `emb-extract-clap.py` —
-  [marimo](https://marimo.io/) notebooks for exploring embeddings (t-SNE plots,
-  similarity search). They share the `cache/` directory.
+- `notebooks/` — [marimo](https://marimo.io/) notebooks for exploring
+  embeddings (t-SNE plots, similarity search): `emb-extract-effnet.py`,
+  `emb-extract-effnet-onnx.py`, `emb-extract-clap.py`. They use the project's
+  `cache/` directory and model files.
 
 ## Known limitations
 

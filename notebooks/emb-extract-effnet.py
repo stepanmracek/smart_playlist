@@ -22,12 +22,14 @@ with app.setup:
 
 
 @app.cell
-def _():
-    MODEL_FILE = "discogs-effnet-bs64-1.pb"
+def _(mo):
     SR = 16_000
     MAX_SEC = 60
     MUSIC_DIR = Path("/home/stepo/Hudba")
-    return MAX_SEC, MODEL_FILE, MUSIC_DIR, SR
+    PROJECT_DIR = mo.notebook_dir().parent  # cache/ and model files live there
+    CACHE_DIR = PROJECT_DIR / "cache"
+    MODEL_FILE = str(PROJECT_DIR / "discogs-effnet-bs64-1.pb")
+    return CACHE_DIR, MAX_SEC, MODEL_FILE, MUSIC_DIR, SR
 
 
 @app.cell
@@ -45,9 +47,9 @@ def _(MUSIC_DIR):
 
 
 @app.cell
-def _(MAX_SEC, MUSIC_DIR, SR, model):
+def _(CACHE_DIR, MAX_SEC, MUSIC_DIR, SR, model):
     def extract_emb(file):
-        cached_path = Path("cache") / ("effnet-" + md5(str(Path(file).relative_to(MUSIC_DIR)).encode()).hexdigest())
+        cached_path = CACHE_DIR / ("effnet-" + md5(str(Path(file).relative_to(MUSIC_DIR)).encode()).hexdigest())
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)

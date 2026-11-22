@@ -20,13 +20,15 @@ with app.setup:
 
 
 @app.cell
-def _():
+def _(mo):
     MODEL_NAME = "laion/larger_clap_music"
     SR = 48_000
     CHUNK_SEC = 10
     MAX_SEC = 60
     MUSIC_DIR = Path("/home/stepo/Hudba")
-    return CHUNK_SEC, MAX_SEC, MODEL_NAME, MUSIC_DIR, SR
+    PROJECT_DIR = mo.notebook_dir().parent  # cache/ and model files live there
+    CACHE_DIR = PROJECT_DIR / "cache"
+    return CACHE_DIR, CHUNK_SEC, MAX_SEC, MODEL_NAME, MUSIC_DIR, SR
 
 
 @app.cell
@@ -37,10 +39,10 @@ def _(MODEL_NAME):
 
 
 @app.cell
-def _(CHUNK_SEC, MAX_SEC, MUSIC_DIR, SR, model, processor):
+def _(CACHE_DIR, CHUNK_SEC, MAX_SEC, MUSIC_DIR, SR, model, processor):
     @torch.no_grad()
     def embed(path):
-        cached_path = Path("cache") / ("clap-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
+        cached_path = CACHE_DIR / ("clap-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)

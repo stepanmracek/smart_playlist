@@ -21,14 +21,16 @@ with app.setup:
 
 
 @app.cell
-def _():
+def _(mo):
     REPO = "Heyian/discogs-effnet-onnx"
     SR = 16_000
     MAX_SEC = 60
     PATCH_SIZE = 128   # frames per patch (~2 s)
     PATCH_HOP = 62     # Essentia's default for this model
     MUSIC_DIR = Path("/home/stepo/Hudba")
-    return MAX_SEC, MUSIC_DIR, PATCH_HOP, PATCH_SIZE, REPO, SR
+    PROJECT_DIR = mo.notebook_dir().parent  # cache/ and model files live there
+    CACHE_DIR = PROJECT_DIR / "cache"
+    return CACHE_DIR, MAX_SEC, MUSIC_DIR, PATCH_HOP, PATCH_SIZE, REPO, SR
 
 
 @app.cell
@@ -81,9 +83,9 @@ def _(PATCH_HOP, PATCH_SIZE):
 
 
 @app.cell
-def _(MUSIC_DIR, emb_idx, input_name, make_patches, melspec, sess):
+def _(CACHE_DIR, MUSIC_DIR, emb_idx, input_name, make_patches, melspec, sess):
     def embed(path):
-        cached_path = Path("cache") / ("effnet-onnx-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
+        cached_path = CACHE_DIR / ("effnet-onnx-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)
