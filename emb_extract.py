@@ -2,6 +2,9 @@
 
 - computes embeddings for songs that don't have one cached yet
 - deletes cached embeddings of songs that are no longer in the dump
+- skips songs with a long silence ("hidden track" files: song, minutes of
+  silence, hidden song) and (almost) silent tracks: their cache entry is None,
+  so they're not retried and cache_to_db.py leaves them out of the DB
 
 Embeddings come from the Discogs-EffNet model (ONNX), averaged over the middle
 60 s of a song. Decoding (PyAV), resampling and the mel spectrogram reproduce
@@ -36,6 +39,12 @@ MAX_SEC = 60
 FRAME, HOP = 512, 256  # mel spectrogram framing (essentia's TensorflowInputMusiCNN)
 N_MELS = 96
 PATCH_SIZE, PATCH_HOP = 128, 62  # model input patches (TensorflowPredictEffnetDiscogs)
+SILENCE_DB = -60  # 100 ms frames quieter than this count as silent
+# a song is skipped as a hidden-track / silent file if it has
+HIDDEN_GAP_SEC = 20  # - a silence this long, not at the very start, followed by
+HIDDEN_AFTER_SEC = 10  #   at least this much more sound (song, gap, hidden song)
+MAX_SILENCE_SEC = 60  # - or a silence this long anywhere (minutes of dead air)
+MAX_SILENT_FRACTION = 0.5  # - or is mostly silent
 
 # exact match, so e.g. "effnet-onnx-<hash>" files are never touched
 CACHE_NAME_RE = re.compile(rf"^{re.escape(PREFIX)}-[0-9a-f]{{32}}$")
@@ -101,13 +110,54 @@ def slice_chunks(chunks: list[np.ndarray], lo: int, hi: int) -> np.ndarray:
     return out
 
 
-def load_middle(path: str) -> np.ndarray:
+def silent_frames(chunks: list[np.ndarray], sr: int) -> np.ndarray:
+    """Per 100 ms frame: is it silent? (partial frames at chunk ends are ignored)"""
+    frame = sr // 10
+    silent = []
+    for chunk in chunks:
+        frames = chunk[: len(chunk) // frame * frame].reshape(-1, frame)
+        rms = np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1))
+        silent.append(20 * np.log10(rms + 1e-10) < SILENCE_DB)
+    return np.concatenate(silent) if silent else np.zeros(0, bool)
+
+
+def silence_stats(chunks: list[np.ndarray], sr: int) -> tuple[float, float]:
+    """Longest silent stretch in seconds and the silent fraction of the song."""
+    silent = silent_frames(chunks, sr)
+    if not silent.any():
+        return 0.0, 0.0
+    edges = np.diff(np.concatenate([[0], silent.astype(np.int8), [0]]))
+    runs = np.flatnonzero(edges == -1) - np.flatnonzero(edges == 1)
+    return runs.max() / 10, silent.mean()
+
+
+def is_hidden_track(chunks: list[np.ndarray], sr: int) -> bool:
+    """Hidden-track file (song, long silence, hidden song), minutes of dead
+    air, or a (mostly) silent track. Quiet intros and silent endings shorter
+    than MAX_SILENCE_SEC are fine."""
+    silent = silent_frames(chunks, sr)
+    if not silent.any():
+        return False
+    if silent.mean() > MAX_SILENT_FRACTION:
+        return True
+    edges = np.diff(np.concatenate([[0], silent.astype(np.int8), [0]]))
+    starts, ends = np.flatnonzero(edges == 1) / 10, np.flatnonzero(edges == -1) / 10
+    total = len(silent) / 10
+    for start, end in zip(starts, ends):
+        gap = end - start
+        if gap > MAX_SILENCE_SEC:
+            return True
+        if gap > HIDDEN_GAP_SEC and start > 5 and total - end >= HIDDEN_AFTER_SEC:
+            return True
+    return False
+
+
+def load_middle(chunks: list[np.ndarray], sr: int) -> np.ndarray:
     """Middle MAX_SEC seconds at 16 kHz, same as MonoLoader(sampleRate=16000,
     resampleQuality=4) followed by taking the middle MAX_SEC seconds.
     Resampling is plain linear interpolation like libsamplerate's SRC_LINEAR
     (incl. its one-sample start delay, no anti-aliasing filter), computed only
     for the output samples that are kept."""
-    chunks, sr = decode_mono_chunks(path)
     n_native = sum(len(c) for c in chunks)
     if n_native == 0:
         return np.zeros(0, np.float32)
@@ -181,14 +231,18 @@ def load_model():
     return sess, sess.get_inputs()[0].name, emb_out
 
 
-def extract_emb(model, full_path: str) -> np.ndarray:
+def extract_emb(model, full_path: str) -> np.ndarray | None:
+    """Embedding of a song, or None for hidden-track / silent files."""
+    chunks, sr = decode_mono_chunks(full_path)
+    if is_hidden_track(chunks, sr):
+        return None
     sess, inp, out = model
-    audio = load_middle(full_path)
+    audio = load_middle(chunks, sr)
     emb = sess.run([out], {inp: patches(melspec(audio))})[0].mean(axis=0)
     return emb / np.linalg.norm(emb)
 
 
-def save_atomic(path: Path, emb: np.ndarray) -> None:
+def save_atomic(path: Path, emb: np.ndarray | None) -> None:
     # write to a temp file first so an interrupted run never leaves a broken pickle
     tmp = path.with_name(path.name + ".tmp")
     with open(tmp, "wb") as f:
@@ -219,15 +273,19 @@ def main(dry_run: bool, dump_path: str = "mpd_dump.csv") -> None:
     if not to_add:
         return
     model = load_model()
-    failed = []
+    failed, skipped = [], []
     for rel_path in tqdm(sorted(to_add)):
         try:
             emb = extract_emb(model, str(MUSIC_DIR / rel_path))
             save_atomic(cache_path(rel_path), emb)
+            if emb is None:
+                skipped.append(rel_path)
+                tqdm.write(f"{rel_path} -> skipped (hidden track / silence)")
         except Exception as ex:
             failed.append(rel_path)
             tqdm.write(f"{rel_path} -> {ex}")
-    print(f"computed {len(to_add) - len(failed)}, failed {len(failed)}")
+    print(f"computed {len(to_add) - len(failed) - len(skipped)}, "
+          f"skipped {len(skipped)} (hidden track / silence), failed {len(failed)}")
 
 
 if __name__ == "__main__":

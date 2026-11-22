@@ -57,7 +57,9 @@ among the last 10 queued songs, and appended to the queue.
    (`artist, album, track, path`; path is relative to the music directory).
 3. `emb_extract.py` — syncs the embedding cache with the dump: computes effnet
    embeddings for new songs and deletes cached embeddings of removed songs
-   (`--dry-run` only reports what would change).
+   (`--dry-run` only reports what would change). Hidden-track files (song, long
+   silence, hidden song), minutes of dead air and silent tracks are skipped:
+   their cache entry is `None`, so they're left out of the DB.
 4. `cache_to_db.py effnet` — collects cached embeddings into `db.npz`
    (`embeddings`, L2-normalized, float32) and `db.csv` (row *i* ↔ embedding *i*).
    Songs without an embedding are skipped.
