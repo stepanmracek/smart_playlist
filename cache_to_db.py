@@ -1,6 +1,9 @@
 """Collect cached embeddings for songs in mpd_dump.csv into db.npz + db.csv.
 
-Usage: python cache_to_db.py <prefix>    (e.g. effnet, clap, effnet-onnx)
+Usage: python cache_to_db.py [prefix]
+
+prefix defaults to "emb" (emb_extract.py); notebook caches (e.g. effnet, clap,
+effnet-onnx) can be used to build a DB for experiments.
 
 Row i of db.csv corresponds to db.npz["embeddings"][i]. Songs without a cached
 embedding are skipped.
@@ -52,6 +55,6 @@ def main(prefix: str, dump_path: str = "mpd_dump.csv") -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) > 2:
         sys.exit(__doc__)
-    main(sys.argv[1])
+    main(sys.argv[1] if len(sys.argv) == 2 else "emb")

@@ -57,25 +57,29 @@ among the last 10 queued songs, and appended to the queue.
 1. `mpc --wait update` — MPD rescans its library.
 2. `mpd_dump.py` — writes all MPD songs to `mpd_dump.csv`
    (`artist, album, track, path`; path is relative to the music directory).
-3. `emb_extract.py` — syncs the embedding cache with the dump: computes effnet
-   embeddings for new songs and deletes cached embeddings of removed songs
+3. `emb_extract.py` — syncs the embedding cache with the dump: computes embeddings
+   for new songs and deletes cached embeddings of removed songs
    (`--dry-run` only reports what would change). Hidden-track files (song, long
    silence, hidden song), minutes of dead air and silent tracks are skipped:
    their cache entry is `None`, so they're left out of the DB.
-4. `cache_to_db.py effnet` — collects cached embeddings into `db.npz`
+4. `cache_to_db.py` — collects cached embeddings into `db.npz`
    (`embeddings`, L2-normalized, float32) and `db.csv` (row *i* ↔ embedding *i*).
    Songs without an embedding are skipped.
 
-Embeddings are cached in `cache/<prefix>-<md5 of path relative to the music
+Embeddings are cached in `cache/emb-<md5 of path relative to the music
 directory>` as pickled numpy arrays (the relative path is MPD's song path), so
-moving the whole library keeps the cache; renamed files are recomputed.
+moving the whole library keeps the cache; renamed files are recomputed. The
+file names don't say which model produced them: after switching the model,
+delete `cache/emb-*` and run `./refresh.sh`.
 
 ## Other files
 
 - `notebooks/` — [marimo](https://marimo.io/) notebooks for exploring
   embeddings (t-SNE plots, similarity search): `emb-extract-effnet.py`,
   `emb-extract-effnet-onnx.py`, `emb-extract-clap.py`. They use the project's
-  `cache/` directory and model files.
+  `cache/` directory with their own prefixes (`effnet-`, `effnet-onnx-`,
+  `clap-`), separate from `emb-` used by the playlist; `python cache_to_db.py
+  <prefix>` builds a DB from them for experiments.
 
 ## Known limitations
 

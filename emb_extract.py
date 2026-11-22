@@ -1,4 +1,4 @@
-"""Sync the effnet embedding cache with the songs in mpd_dump.csv.
+"""Sync the embedding cache (cache/emb-<md5>) with the songs in mpd_dump.csv.
 
 - computes embeddings for songs that don't have one cached yet
 - deletes cached embeddings of songs that are no longer in the dump
@@ -31,7 +31,7 @@ from tqdm import tqdm
 
 from smart_playlist import MUSIC_DIR
 
-PREFIX = "effnet"
+PREFIX = "emb"
 CACHE_DIR = Path("cache")
 MODEL_PATH = Path("discogs-effnet-bsdynamic-1.onnx")
 # pinned revision + checksum, so the model can't change under existing embeddings
@@ -50,7 +50,7 @@ HIDDEN_AFTER_SEC = 10  #   at least this much more sound (song, gap, hidden song
 MAX_SILENCE_SEC = 60  # - or a silence this long anywhere (minutes of dead air)
 MAX_SILENT_FRACTION = 0.5  # - or is mostly silent
 
-# exact match, so e.g. "effnet-onnx-<hash>" files are never touched
+# exact match, so notebook cache files are never touched
 CACHE_NAME_RE = re.compile(rf"^{re.escape(PREFIX)}-[0-9a-f]{{32}}$")
 
 

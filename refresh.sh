@@ -16,7 +16,7 @@ echo "==> Syncing embedding cache"
 python emb_extract.py
 
 echo "==> Building DB"
-python cache_to_db.py effnet  # emb_extract.py produces effnet embeddings
+python cache_to_db.py
 
 if pgrep -f 'python.*smart_playlist\.py' >/dev/null; then
     echo "==> NOTE: smart_playlist.py is running - restart it to load the new DB"
