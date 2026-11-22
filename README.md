@@ -10,12 +10,17 @@ embeddings.
 ## Requirements
 
 - MPD server and `mpc`
-- Python with `python-mpd2`, `numpy`, `tqdm`, `av` (PyAV), `onnxruntime`
+- [uv](https://docs.astral.sh/uv/) — manages Python and the dependencies
+  (`pyproject.toml`, `uv.lock`):
+  - `uv sync` — runtime (`python-mpd2`, `numpy`, `tqdm`, `av` (PyAV),
+    `onnxruntime`) plus the notebook packages (`dev` group: marimo,
+    essentia-tensorflow, CPU-only torch, ...)
+  - `uv sync --no-dev` — runtime only, enough for the daemon and `refresh.sh`
 - The ONNX effnet model (`discogs-effnet-bsdynamic-1.onnx`, from
   [Heyian/discogs-effnet-onnx](https://huggingface.co/Heyian/discogs-effnet-onnx),
   pinned revision, checksum verified) is downloaded into the project directory
-  on the first run of `emb_extract.py`. The exploration notebooks additionally
-  need `essentia-tensorflow` and `discogs-effnet-bs64-1.pb`.
+  on the first run of `emb_extract.py`. The effnet notebook additionally needs
+  `discogs-effnet-bs64-1.pb`.
 - Music files accessible locally under the same layout as MPD's music directory
 
 ## Configuration
@@ -43,7 +48,7 @@ Then start the playlist daemon (restart it after each refresh, the DB is loaded
 only at startup):
 
 ```sh
-python smart_playlist.py
+uv run smart_playlist.py
 ```
 
 When a new song starts and fewer than 3 songs are left after it, a song is
@@ -78,8 +83,9 @@ delete `cache/emb-*` and run `./refresh.sh`.
   embeddings (t-SNE plots, similarity search): `emb-extract-effnet.py`,
   `emb-extract-effnet-onnx.py`, `emb-extract-clap.py`. They use the project's
   `cache/` directory with their own prefixes (`effnet-`, `effnet-onnx-`,
-  `clap-`), separate from `emb-` used by the playlist; `python cache_to_db.py
-  <prefix>` builds a DB from them for experiments.
+  `clap-`), separate from `emb-` used by the playlist; `uv run cache_to_db.py
+  <prefix>` builds a DB from them for experiments. Open one with
+  `uv run marimo edit notebooks/emb-extract-effnet.py`.
 
 ## Known limitations
 
