@@ -21,6 +21,7 @@ import pickle
 import re
 import sys
 import urllib.request
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from hashlib import md5, sha256
 from pathlib import Path
 
@@ -242,8 +243,11 @@ def model_file() -> Path:
 
 
 def load_model():
-    """ONNX session for the model."""
-    sess = ort.InferenceSession(str(model_file()), providers=["CPUExecutionProvider"])
+    """Single-threaded ONNX session for the model (parallelism is across songs)."""
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 1
+    opts.inter_op_num_threads = 1
+    sess = ort.InferenceSession(str(model_file()), opts, providers=["CPUExecutionProvider"])
     emb_out = next(o.name for o in sess.get_outputs() if o.shape[-1] == 1280)
     return sess, sess.get_inputs()[0].name, emb_out
 
@@ -265,6 +269,24 @@ def save_atomic(path: Path, emb: np.ndarray | None) -> None:
     with open(tmp, "wb") as f:
         pickle.dump(emb, f)
     os.replace(tmp, path)
+
+
+_model = None  # per worker process
+
+
+def _init_worker() -> None:
+    global _model
+    _model = load_model()
+
+
+def _process(rel_path: str) -> tuple[str, str]:
+    """Compute and cache one song's embedding -> (status, error message)."""
+    try:
+        emb = extract_emb(_model, str(MUSIC_DIR / rel_path))
+        save_atomic(cache_path(rel_path), emb)
+        return ("skipped" if emb is None else "ok"), ""
+    except Exception as ex:
+        return "failed", str(ex)
 
 
 def main(dry_run: bool, dump_path: str = "mpd_dump.csv") -> None:
@@ -289,18 +311,19 @@ def main(dry_run: bool, dump_path: str = "mpd_dump.csv") -> None:
 
     if not to_add:
         return
-    model = load_model()
+    model_file()  # download once here, not in every worker
     failed, skipped = [], []
-    for rel_path in tqdm(sorted(to_add)):
-        try:
-            emb = extract_emb(model, str(MUSIC_DIR / rel_path))
-            save_atomic(cache_path(rel_path), emb)
-            if emb is None:
+    with ProcessPoolExecutor(os.cpu_count(), initializer=_init_worker) as pool:
+        futures = {pool.submit(_process, p): p for p in sorted(to_add)}
+        for fut in tqdm(as_completed(futures), total=len(futures)):
+            rel_path = futures[fut]
+            status, err = fut.result()
+            if status == "skipped":
                 skipped.append(rel_path)
                 tqdm.write(f"{rel_path} -> skipped (hidden track / silence)")
-        except Exception as ex:
-            failed.append(rel_path)
-            tqdm.write(f"{rel_path} -> {ex}")
+            elif status == "failed":
+                failed.append(rel_path)
+                tqdm.write(f"{rel_path} -> {err}")
     print(f"computed {len(to_add) - len(failed) - len(skipped)}, "
           f"skipped {len(skipped)} (hidden track / silence), failed {len(failed)}")
 
