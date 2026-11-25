@@ -57,7 +57,10 @@ def main() -> None:
     args = ap.parse_args()
 
     db = SongDB.load()
-    seed_emb = db.embeddings[db.index[args.seed]]
+    # metrics use plain cosine similarity of the raw embeddings: comparable across
+    # CENTER / CSLS_K settings, unlike the ranking space
+    embeddings = np.load("db.npz")["embeddings"]
+    seed_emb = embeddings[db.index[args.seed]]
     checkpoints = [p for p in (5, 10, 15, 20) if p <= args.length]
 
     for weights_arg in args.weights:
@@ -67,8 +70,8 @@ def main() -> None:
             random.seed(run)
             playlists.append(simulate(db, args.seed, weights, args.length))
 
-        sims = np.array([[db.embeddings[db.index[p]] @ seed_emb for p in pl] for pl in playlists])
-        steps = np.array([[db.embeddings[db.index[a]] @ db.embeddings[db.index[b]]
+        sims = np.array([[embeddings[db.index[p]] @ seed_emb for p in pl] for pl in playlists])
+        steps = np.array([[embeddings[db.index[a]] @ embeddings[db.index[b]]
                            for a, b in zip(pl, pl[1:])] for pl in playlists])
         songs = Counter(p for pl in playlists for p in pl[1:])
         artists = [len(set().union(*(db.artists[db.index[p]] for p in pl))) for pl in playlists]

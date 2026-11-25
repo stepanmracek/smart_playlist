@@ -36,6 +36,9 @@ Environment variables:
 | `CSLS_K`    | `10`                | CSLS neighbourhood size against hubs; `0` = plain cosine similarity |
 | `CENTER`    | `1`                 | rank in a centered embedding space (global mean subtracted), against the pull of averaged queries towards hubs; `0` = off |
 
+`CSLS_K` and `CENTER` are also read by `cache_to_db.py`, which precomputes the
+ranking space for them (see [Pipeline](#pipeline)); set them the same for both.
+
 ## Usage
 
 Build (or refresh) the song database — run this whenever the MPD library
@@ -74,7 +77,13 @@ one, the older ones slow down drift), ranked by
    their cache entry is `None`, so they're left out of the DB.
 4. `cache_to_db.py` — collects cached embeddings into `db.npz`
    (`embeddings`, L2-normalized, float32) and `db.csv` (row *i* ↔ embedding *i*).
-   Songs without an embedding are skipped.
+   Songs without an embedding are skipped. It also precomputes the ranking space
+   (`search`, `density`) for the current `CENTER` and `CSLS_K` settings: the CSLS
+   density compares every song with every other one, which takes ~2 s on a desktop
+   but ~2 min on a Raspberry Pi 2. The daemon uses the precomputed arrays when its
+   settings match and computes them at startup otherwise. To run the daemon on
+   a weak machine (e.g. the MPD server), build the DB on a fast one and copy
+   `db.csv` + `db.npz` over.
 
 Embeddings are cached in `cache/emb-<md5 of path relative to the music
 directory>` as pickled numpy arrays (the relative path is MPD's song path), so

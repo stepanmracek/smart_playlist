@@ -1,6 +1,7 @@
 import csv
 import os
 import random
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,7 +46,6 @@ def connect_mpd() -> MPDClient:
 class SongDB:
     paths: list[str]  # MPD paths, relative to MUSIC_DIR
     artists: list[set[str]]
-    embeddings: np.ndarray  # (n, dim), L2-normalized, as in db.npz
     index: dict[str, int]  # path -> row
     search: np.ndarray  # (n, dim) embeddings used for ranking: centered + re-normalized if CENTER
     density: np.ndarray  # (n,) CSLS penalty r: mean similarity (in search space) to own CSLS_K nearest neighbours
@@ -54,17 +54,34 @@ class SongDB:
     def load(cls, csv_path: str = "db.csv", npz_path: str = "db.npz") -> "SongDB":
         with open(csv_path, newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
-        embeddings = np.load(npz_path)["embeddings"]
-        assert len(rows) == len(embeddings), "db.csv and db.npz are out of sync"
+        # npz arrays are read lazily: the raw embeddings are only read from disk when
+        # the ranking space has to be computed
+        with np.load(npz_path) as data:
+            # cache_to_db.py precomputes the ranking space (slow on weak hardware:
+            # ~2 min on a Raspberry Pi 2); use it if built with the current settings
+            if "search" in data and bool(data["center"]) == CENTER and int(data["csls_k"]) == CSLS_K:
+                search, density = data["search"], data["density"]
+            else:
+                print(f"{npz_path} has no ranking space precomputed for CENTER={int(CENTER)} "
+                      f"CSLS_K={CSLS_K}, computing it (rerun cache_to_db.py to precompute)",
+                      file=sys.stderr, flush=True)
+                search, density = ranking_space(data["embeddings"], CENTER, CSLS_K)
+        assert len(rows) == len(search), "db.csv and db.npz are out of sync"
         paths = [row["path"] for row in rows]
         # mpd_dump joins multiple artist tags with "; "
         artists = [set(filter(None, row["artist"].split("; "))) for row in rows]
         index = {p: i for i, p in enumerate(paths)}
-        search = embeddings
-        if CENTER:
-            search = embeddings - embeddings.mean(axis=0)
-            search /= np.linalg.norm(search, axis=1, keepdims=True)
-        return cls(paths, artists, embeddings, index, search, neighbourhood_density(search, CSLS_K))
+        return cls(paths, artists, index, search, density)
+
+
+def ranking_space(embeddings: np.ndarray, center: bool, csls_k: int) -> tuple[np.ndarray, np.ndarray]:
+    """Embeddings used for ranking (centered + re-normalized if center) and their CSLS
+    density. The density costs O(n² · dim): precomputed by cache_to_db.py."""
+    search = embeddings
+    if center:
+        search = embeddings - embeddings.mean(axis=0)
+        search /= np.linalg.norm(search, axis=1, keepdims=True)
+    return search, neighbourhood_density(search, csls_k)
 
 
 def neighbourhood_density(embeddings: np.ndarray, k: int, chunk: int = 1000) -> np.ndarray:
@@ -115,8 +132,7 @@ def on_song_start(
     chosen = random.choice(candidates)
     next_path = db.paths[chosen]
     client.add(next_path)
-    similarity = db.embeddings[chosen] @ db.embeddings[db.index[path]]  # plain cosine, for the log
-    print(f"{path} -> {next_path} (similarity {similarity:.3f})", flush=True)
+    print(f"{path} -> {next_path} (CSLS score {score[chosen]:.3f})", flush=True)
 
 
 def song_artists(song: dict) -> set[str]:
