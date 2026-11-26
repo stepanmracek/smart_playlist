@@ -141,33 +141,42 @@ def song_artists(song: dict) -> set[str]:
 
 
 def watch_song_changes(client: MPDClient, db: SongDB) -> None:
-    last_songid = client.status().get("songid")
+    # songid of the song the queue was last extended from: each song extends the
+    # queue at most once, even if it stays last (e.g. no candidate was found)
+    extended_songid = None
+    # Check first, then wait: the first pass handles the state at startup (the daemon
+    # misses events while down, and a song already playing emits no new event).
     while True:
-        client.idle("player")  # blocks until play/pause/stop/seek/song change
         status = client.status()
         songid = status.get("songid")
-        if status.get("state") == "play" and songid != last_songid:
-            length = int(status["playlistlength"])
-            songs_left = length - int(status["song"]) - 1  # after the current one
-            if songs_left >= 3:
-                last_songid = songid
-                continue
-            current = int(status["song"])
-            # Fetch one slice of the queue that covers both windows we need:
+        length = int(status["playlistlength"])
+        # Off in these modes: random makes queue order meaningless as "last" and
+        # "history", consume deletes the history, and with repeat the queue loops
+        # (appending would break e.g. a repeated album). consume can also be "oneshot".
+        modes_off = any(status.get(mode, "0") != "0" for mode in ("random", "consume", "repeat"))
+        if (
+            status.get("state") == "play"
+            and songid != extended_songid
+            and not modes_off
+            and int(status["song"]) == length - 1  # only extend from the last queue song
+        ):
+            extended_songid = songid
+            # The current song is the last one, so both windows end with it:
             # - recent: the last RECENT_N queue songs (their artists and paths
             #   must not be picked again)
-            # - history: the last HISTORY_K songs up to and including the current
-            #   one (their embeddings are averaged to find the next song)
-            # The current song is among the last 3, so with a large HISTORY_K the
-            # history window can start before the recent one; start at whichever
-            # begins first (never below queue position 0).
-            start = max(min(length - RECENT_N, current - HISTORY_K + 1), 0)
+            # - history: the last HISTORY_K songs (their embeddings are averaged
+            #   to find the next song)
+            # Fetch one slice covering the longer of the two.
+            start = max(length - max(RECENT_N, HISTORY_K), 0)
             songs = client.playlistinfo((start, length))
             recent = songs[-RECENT_N:]
             artists = set().union(*(song_artists(song) for song in recent))
-            history = [song["file"] for song in songs[: current - start + 1][-HISTORY_K:]]
+            history = [song["file"] for song in songs[-HISTORY_K:]]
             on_song_start(client, db, history, artists, {song["file"] for song in recent})
-        last_songid = songid
+        # player: play/pause/stop/seek/song change; options: random/consume/repeat
+        # toggled (switching a mode off while the last song plays must still extend
+        # the queue, otherwise playback stops after it)
+        client.idle("player", "options")
 
 
 if __name__ == "__main__":
