@@ -13,12 +13,14 @@ TOP_N = 5  # pick the next song randomly from this many best candidates
 # the query is a weighted average of the embeddings of the current song and the ones
 # before it (current song first): the current song drives the transition, older
 # songs gently anchor it and slow down drift
-HISTORY_WEIGHTS = tuple(float(w) for w in os.environ.get("HISTORY_WEIGHTS", "0.6,0.3,0.1").split(","))
+HISTORY_WEIGHTS = tuple(
+    float(w) for w in os.environ.get("HISTORY_WEIGHTS", "0.6,0.3,0.1").split(",")
+)
 HISTORY_K = len(HISTORY_WEIGHTS)
 RECENT_N = 10  # artists and songs from this many last queue songs are not picked again
 # CSLS ranking against hubs: candidates are ranked by 2*cos - r, where r is the mean
 # similarity of a song to its CSLS_K nearest neighbours (0 = plain cosine similarity)
-CSLS_K = int(os.environ.get("CSLS_K", 10))
+CSLS_K = int(os.environ.get("CSLS_K", "10"))
 # rank in a centered space (global mean embedding subtracted, re-normalized): averaging
 # history embeddings pulls the query towards the global mean, where hubs live;
 # centering removes that shared direction
@@ -27,7 +29,7 @@ CENTER = os.environ.get("CENTER", "1") != "0"
 
 def connect_mpd() -> MPDClient:
     host = os.environ.get("MPD_HOST", "localhost")
-    port = int(os.environ.get("MPD_PORT", 6600))
+    port = int(os.environ.get("MPD_PORT", "6600"))
     password = None
     # MPD convention: MPD_HOST may be "password@host"
     if "@" in host:
@@ -48,10 +50,12 @@ class SongDB:
     artists: list[set[str]]
     index: dict[str, int]  # path -> row
     search: np.ndarray  # (n, dim) embeddings used for ranking: centered + re-normalized if CENTER
-    density: np.ndarray  # (n,) CSLS penalty r: mean similarity (in search space) to own CSLS_K nearest neighbours
+    density: (
+        np.ndarray
+    )  # (n,) CSLS penalty r: mean similarity (in search space) to own CSLS_K nearest neighbours
 
     @classmethod
-    def load(cls, csv_path: str = "db.csv", npz_path: str = "db.npz") -> "SongDB":
+    def load(cls, csv_path: str = "db.csv", npz_path: str = "db.npz") -> SongDB:
         with open(csv_path, newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         # npz arrays are read lazily: the raw embeddings are only read from disk when
@@ -59,12 +63,19 @@ class SongDB:
         with np.load(npz_path) as data:
             # cache_to_db.py precomputes the ranking space (slow on weak hardware:
             # ~2 min on a Raspberry Pi 2); use it if built with the current settings
-            if "search" in data and bool(data["center"]) == CENTER and int(data["csls_k"]) == CSLS_K:
+            if (
+                "search" in data
+                and bool(data["center"]) == CENTER
+                and int(data["csls_k"]) == CSLS_K
+            ):
                 search, density = data["search"], data["density"]
             else:
-                print(f"{npz_path} has no ranking space precomputed for CENTER={int(CENTER)} "
-                      f"CSLS_K={CSLS_K}, computing it (rerun cache_to_db.py to precompute)",
-                      file=sys.stderr, flush=True)
+                print(
+                    f"{npz_path} has no ranking space precomputed for CENTER={int(CENTER)} "
+                    f"CSLS_K={CSLS_K}, computing it (rerun cache_to_db.py to precompute)",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 search, density = ranking_space(data["embeddings"], CENTER, CSLS_K)
         assert len(rows) == len(search), "db.csv and db.npz are out of sync"
         paths = [row["path"] for row in rows]
@@ -74,7 +85,9 @@ class SongDB:
         return cls(paths, artists, index, search, density)
 
 
-def ranking_space(embeddings: np.ndarray, center: bool, csls_k: int) -> tuple[np.ndarray, np.ndarray]:
+def ranking_space(
+    embeddings: np.ndarray, center: bool, csls_k: int
+) -> tuple[np.ndarray, np.ndarray]:
     """Embeddings used for ranking (centered + re-normalized if center) and their CSLS
     density. The density costs O(n² · dim): precomputed by cache_to_db.py."""
     search = embeddings
@@ -92,9 +105,9 @@ def neighbourhood_density(embeddings: np.ndarray, k: int, chunk: int = 1000) -> 
     if k == 0:
         return density
     for start in range(0, len(embeddings), chunk):
-        sims = embeddings[start:start + chunk] @ embeddings.T
+        sims = embeddings[start : start + chunk] @ embeddings.T
         sims[np.arange(len(sims)), np.arange(start, start + len(sims))] = -np.inf  # not itself
-        density[start:start + chunk] = np.partition(sims, -k, axis=1)[:, -k:].mean(axis=1)
+        density[start : start + chunk] = np.partition(sims, -k, axis=1)[:, -k:].mean(axis=1)
     return density
 
 

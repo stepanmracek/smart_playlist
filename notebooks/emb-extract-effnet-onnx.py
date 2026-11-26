@@ -4,20 +4,20 @@ __generated_with = "0.25.2"
 app = marimo.App(width="full")
 
 with app.setup:
-    import numpy as np
-    import random
-    import os
-    import marimo as mo
     import pickle
-    import pandas as pd
-    import altair as alt
-    from pathlib import Path
-    from hashlib import md5
-    from sklearn.manifold import TSNE
+    import random
     from glob import glob
-    import onnxruntime as ort
+    from hashlib import md5
+    from pathlib import Path
+
+    import altair as alt
     import essentia.standard as es
+    import marimo as mo
+    import numpy as np
+    import onnxruntime as ort
+    import pandas as pd
     from huggingface_hub import hf_hub_download
+    from sklearn.manifold import TSNE
 
 
 @app.cell
@@ -25,8 +25,8 @@ def _(mo):
     REPO = "Heyian/discogs-effnet-onnx"
     SR = 16_000
     MAX_SEC = 60
-    PATCH_SIZE = 128   # frames per patch (~2 s)
-    PATCH_HOP = 62     # Essentia's default for this model
+    PATCH_SIZE = 128  # frames per patch (~2 s)
+    PATCH_HOP = 62  # Essentia's default for this model
     MUSIC_DIR = Path("/home/stepo/Hudba")
     PROJECT_DIR = mo.notebook_dir().parent  # cache/ and model files live there
     CACHE_DIR = PROJECT_DIR / "cache"
@@ -59,12 +59,11 @@ def _(MAX_SEC, SR):
         n = MAX_SEC * SR
         if len(audio) > n:
             start = (len(audio) - n) // 2
-            audio = audio[start:start + n]
+            audio = audio[start : start + n]
         extractor = es.TensorflowInputMusiCNN()  # 512/256 frames, 96 mels, log10(1+10000x)
         frames = [
-            extractor(f) for f in es.FrameGenerator(
-                audio, frameSize=512, hopSize=256,startFromZero=True
-            )
+            extractor(f)
+            for f in es.FrameGenerator(audio, frameSize=512, hopSize=256, startFromZero=True)
         ]
         return np.array(frames, dtype=np.float32)  # [n_frames, 96]
 
@@ -77,7 +76,7 @@ def _(PATCH_HOP, PATCH_SIZE):
         if len(mel) < PATCH_SIZE:  # pad very short clips
             mel = np.pad(mel, ((0, PATCH_SIZE - len(mel)), (0, 0)))
         starts = range(0, len(mel) - PATCH_SIZE + 1, PATCH_HOP)
-        return np.stack([mel[s:s + PATCH_SIZE] for s in starts])  # [n_patches, 128, 96]
+        return np.stack([mel[s : s + PATCH_SIZE] for s in starts])  # [n_patches, 128, 96]
 
     return (make_patches,)
 
@@ -85,11 +84,13 @@ def _(PATCH_HOP, PATCH_SIZE):
 @app.cell
 def _(CACHE_DIR, MUSIC_DIR, emb_idx, input_name, make_patches, melspec, sess):
     def embed(path):
-        cached_path = CACHE_DIR / ("effnet-onnx-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
+        cached_path = CACHE_DIR / (
+            "effnet-onnx-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest()
+        )
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)
-            
+
         mel = melspec(path)
         patches = make_patches(mel)
         patch_emb = sess.run(None, {input_name: patches})[emb_idx]
@@ -134,14 +135,16 @@ def _(files, projected):
         track = path_obj.stem
         album = path_obj.parent.name
         artist = path_obj.parent.parent.name
-        data.append({
-            "x": coords[0],
-            "y": coords[1],
-            "track": track,
-            "album": album,
-            "artist": artist,
-            "path": f
-        })
+        data.append(
+            {
+                "x": coords[0],
+                "y": coords[1],
+                "track": track,
+                "album": album,
+                "artist": artist,
+                "path": f,
+            }
+        )
 
     df_tsne = pd.DataFrame(data)
     return (df_tsne,)
@@ -167,7 +170,7 @@ def _(df_tsne):
             width="container",
             height=500,
         )
-        #.interactive()
+        # .interactive()
     )
 
     tsne_plot = mo.ui.altair_chart(chart)
@@ -182,16 +185,15 @@ def _(tsne_plot):
 
     if not selected_tracks.empty:
         audio_players = [
-            mo.vstack([
-                mo.md(f"**{row['artist']} - {row['track']}** (*{row['album']}*)"),
-                mo.audio(row['path'])
-            ])
-            for _, row in selected_tracks.head(5).iterrows() # Limit to 5 to avoid clutter
+            mo.vstack(
+                [
+                    mo.md(f"**{row['artist']} - {row['track']}** (*{row['album']}*)"),
+                    mo.audio(row["path"]),
+                ]
+            )
+            for _, row in selected_tracks.head(5).iterrows()  # Limit to 5 to avoid clutter
         ]
-        output = mo.vstack([
-            mo.md(f"### Selected Tracks ({len(selected_tracks)})"),
-            *audio_players
-        ])
+        output = mo.vstack([mo.md(f"### Selected Tracks ({len(selected_tracks)})"), *audio_players])
     else:
         output = mo.md("*Click or drag on the plot to select tracks and listen to them.*")
 
@@ -216,34 +218,44 @@ def _(df_tsne, similarity_scores):
         query_song = df_tsne.iloc[i]
 
         # Header with the query song and its audio player
-        query_info = mo.vstack([
-            mo.md(f"### Query Song: **{query_song['artist']} - {query_song['track']}** (*{query_song['album']}*)"),
-            mo.audio(query_song['path']),
-            mo.md("#### Top 10 Most Similar Songs (Unique Artists):")
-        ])
+        query_info = mo.vstack(
+            [
+                mo.md(
+                    f"### Query Song: **{query_song['artist']} - {query_song['track']}** (*{query_song['album']}*)"
+                ),
+                mo.audio(query_song["path"]),
+                mo.md("#### Top 10 Most Similar Songs (Unique Artists):"),
+            ]
+        )
 
         # List of similar songs with scores and audio players, skipping already seen artists
         similar_items = []
-        seen_artists = {query_song['artist']}
+        seen_artists = {query_song["artist"]}
         rank = 1
         for idx in sorted_indices[i]:
             sim_song = df_tsne.iloc[idx]
-            if sim_song['artist'] in seen_artists:
+            if sim_song["artist"] in seen_artists:
                 continue
-            seen_artists.add(sim_song['artist'])
+            seen_artists.add(sim_song["artist"])
 
             score = similarity_scores[i, idx - 5]
             similar_items.append(
-                mo.vstack([
-                    mo.md(f"**{rank}. {sim_song['artist']} - {sim_song['track']}** (*{sim_song['album']}*) — Similarity: `{score:.3f}`"),
-                    mo.audio(sim_song['path'])
-                ])
+                mo.vstack(
+                    [
+                        mo.md(
+                            f"**{rank}. {sim_song['artist']} - {sim_song['track']}** (*{sim_song['album']}*) — Similarity: `{score:.3f}`"
+                        ),
+                        mo.audio(sim_song["path"]),
+                    ]
+                )
             )
             rank += 1
             if rank > 10:
                 break
 
-        tabs[f"{i+1}. {query_song['artist']} - {query_song['track']}"] = mo.vstack([query_info, *similar_items])
+        tabs[f"{i + 1}. {query_song['artist']} - {query_song['track']}"] = mo.vstack(
+            [query_info, *similar_items]
+        )
 
     mo.ui.tabs(tabs)
     return

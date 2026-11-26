@@ -14,7 +14,7 @@ embeddings.
   (`pyproject.toml`, `uv.lock`):
   - `uv sync` — runtime (`python-mpd2`, `numpy`, `tqdm`, `av` (PyAV),
     `onnxruntime`) plus the notebook packages (`dev` group: marimo,
-    essentia-tensorflow, CPU-only torch, ...)
+    essentia-tensorflow, CPU-only torch, ...), ruff and pre-commit
   - `uv sync --no-dev` — runtime only, enough for the daemon and `refresh.sh`
 - The ONNX effnet model (`discogs-effnet-bsdynamic-1.onnx`, from
   [Heyian/discogs-effnet-onnx](https://huggingface.co/Heyian/discogs-effnet-onnx),
@@ -100,6 +100,10 @@ delete `cache/emb-*` and run `./refresh.sh`.
   `clap-`), separate from `emb-` used by the playlist; `uv run cache_to_db.py
   <prefix>` builds a DB from them for experiments. Open one with
   `uv run marimo edit notebooks/emb-extract-effnet.py`.
+- Lint and format with [ruff](https://docs.astral.sh/ruff/) (configured in
+  `pyproject.toml`): `uv run ruff check --fix . && uv run ruff format .`
+  Both also run as a git pre-commit hook (`.pre-commit-config.yaml`); enable
+  it once per clone with `uv run pre-commit install`.
 
 ## Known limitations
 

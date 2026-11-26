@@ -52,16 +52,24 @@ def main(prefix: str, dump_path: str = "mpd_dump.csv") -> None:
 
     embeddings = np.stack(embeddings).astype(np.float32)
     search, density = ranking_space(embeddings, CENTER, CSLS_K)
-    np.savez("db.npz", embeddings=embeddings, search=search, density=density,
-             center=CENTER, csls_k=CSLS_K)
+    np.savez(
+        "db.npz",
+        embeddings=embeddings,
+        search=search,
+        density=density,
+        center=CENTER,
+        csls_k=CSLS_K,
+    )
     with open("db.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"{len(rows)}/{len(songs)} songs have '{prefix}' embeddings "
-          f"({len(songs) - len(rows)} missing) -> db.npz, db.csv "
-          f"(ranking space: CENTER={int(CENTER)} CSLS_K={CSLS_K})")
+    print(
+        f"{len(rows)}/{len(songs)} songs have '{prefix}' embeddings "
+        f"({len(songs) - len(rows)} missing) -> db.npz, db.csv "
+        f"(ranking space: CENTER={int(CENTER)} CSLS_K={CSLS_K})"
+    )
 
 
 if __name__ == "__main__":

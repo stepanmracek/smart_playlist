@@ -4,19 +4,20 @@ __generated_with = "0.25.2"
 app = marimo.App(width="medium")
 
 with app.setup:
-    import random
-    import librosa
-    import numpy as np
-    import torch
-    import marimo as mo
-    import pandas as pd
-    import altair as alt
     import pickle
-    from pathlib import Path
+    import random
+    from glob import glob
     from hashlib import md5
+    from pathlib import Path
+
+    import altair as alt
+    import librosa
+    import marimo as mo
+    import numpy as np
+    import pandas as pd
+    import torch
     from sklearn.manifold import TSNE
     from transformers import ClapModel, ClapProcessor
-    from glob import glob
 
 
 @app.cell
@@ -42,29 +43,33 @@ def _(MODEL_NAME):
 def _(CACHE_DIR, CHUNK_SEC, MAX_SEC, MUSIC_DIR, SR, model, processor):
     @torch.no_grad()
     def embed(path):
-        cached_path = CACHE_DIR / ("clap-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest())
+        cached_path = CACHE_DIR / (
+            "clap-" + md5(str(Path(path).relative_to(MUSIC_DIR)).encode()).hexdigest()
+        )
         if cached_path.exists():
             with open(cached_path, "rb") as f:
                 return pickle.load(f)
 
         try:
             audio, _ = librosa.load(path, sr=SR, mono=True)
-        except Exception as ex:
+        except Exception as ex:  # noqa: BLE001 -- skip unreadable files
             print(path, "->", ex)
             return None
 
         n = MAX_SEC * SR
         if len(audio) > n:
             start = (len(audio) - n) // 2
-            audio = audio[start:start + n]
+            audio = audio[start : start + n]
         step = CHUNK_SEC * SR
-        chunks = [audio[i:i + step] for i in range(0, len(audio), step)]
+        chunks = [audio[i : i + step] for i in range(0, len(audio), step)]
         chunks = [c for c in chunks if len(c) > SR * 2] or [audio]
 
         chunk_embs = []
         batch_size = 8
         for i in range(0, len(chunks), batch_size):
-            inputs = processor(audio=chunks[i:i+batch_size], sampling_rate=SR, return_tensors="pt")
+            inputs = processor(
+                audio=chunks[i : i + batch_size], sampling_rate=SR, return_tensors="pt"
+            )
             chunk_embs.append(model.get_audio_features(**inputs).pooler_output)
 
         emb = torch.cat(chunk_embs).mean(dim=0)
@@ -84,7 +89,7 @@ def _(MUSIC_DIR):
     files = sorted(glob(str(MUSIC_DIR / "*/*/*.mp3")))
     random.seed(42)
     random.shuffle(files)
-    #files = random.sample(files, 100)
+    # files = random.sample(files, 100)
     return (files,)
 
 
@@ -97,11 +102,7 @@ def _(embed, files):
 @app.cell
 def _(files, maybe_embeds):
     _valid_files, _valid_embeds = zip(
-        *[
-            (_f, _e)
-            for _f, _e in zip(files, maybe_embeds)
-            if _e is not None
-        ]
+        *[(_f, _e) for _f, _e in zip(files, maybe_embeds) if _e is not None]
     )
     valid_files = list(_valid_files)
     embeds = np.array(_valid_embeds)
@@ -123,14 +124,16 @@ def _(projected, valid_files):
         track = path_obj.stem
         album = path_obj.parent.name
         artist = path_obj.parent.parent.name
-        data.append({
-            "x": coords[0],
-            "y": coords[1],
-            "track": track,
-            "album": album,
-            "artist": artist,
-            "path": f
-        })
+        data.append(
+            {
+                "x": coords[0],
+                "y": coords[1],
+                "track": track,
+                "album": album,
+                "artist": artist,
+                "path": f,
+            }
+        )
 
     df_tsne = pd.DataFrame(data)
     return (df_tsne,)
@@ -138,11 +141,11 @@ def _(projected, valid_files):
 
 @app.cell(expand_output=True)
 def _(df_tsne):
-    #artist_param = alt.param(
+    # artist_param = alt.param(
     #    name="artist_search",
     #    value="",
     #    bind=alt.binding(input="text", name="Filter Artist: "),
-    #)
+    # )
 
     chart = (
         alt.Chart(df_tsne)
@@ -157,14 +160,14 @@ def _(df_tsne):
                 alt.Tooltip("track:N", title="Track"),
             ],
         )
-        #.add_params(artist_param)
-        #.transform_filter("test(regexp(artist_search, 'i'), datum.artist)")
+        # .add_params(artist_param)
+        # .transform_filter("test(regexp(artist_search, 'i'), datum.artist)")
         .properties(
             title="t-SNE Projection of Audio Embeddings",
             width="container",
             height=750,
         )
-        #.interactive()
+        # .interactive()
     )
 
     tsne_plot = mo.ui.altair_chart(chart)
@@ -179,16 +182,15 @@ def _(tsne_plot):
 
     if not selected_tracks.empty:
         audio_players = [
-            mo.vstack([
-                mo.md(f"**{row['artist']} - {row['track']}** (*{row['album']}*)"),
-                mo.audio(row['path'])
-            ])
-            for _, row in selected_tracks.head(10).iterrows() # Limit to 5 to avoid clutter
+            mo.vstack(
+                [
+                    mo.md(f"**{row['artist']} - {row['track']}** (*{row['album']}*)"),
+                    mo.audio(row["path"]),
+                ]
+            )
+            for _, row in selected_tracks.head(10).iterrows()  # Limit to 5 to avoid clutter
         ]
-        output = mo.vstack([
-            mo.md(f"### Selected Tracks ({len(selected_tracks)})"),
-            *audio_players
-        ])
+        output = mo.vstack([mo.md(f"### Selected Tracks ({len(selected_tracks)})"), *audio_players])
     else:
         output = mo.md("*Click or drag on the plot to select tracks and listen to them.*")
 
@@ -212,34 +214,44 @@ def _(df_tsne, similarity_scores):
         query_song = df_tsne.iloc[i]
 
         # Header with the query song and its audio player
-        query_info = mo.vstack([
-            mo.md(f"### Query Song: **{query_song['artist']} - {query_song['track']}** (*{query_song['album']}*)"),
-            mo.audio(query_song['path']),
-            mo.md("#### Top 10 Most Similar Songs (Unique Artists):")
-        ])
+        query_info = mo.vstack(
+            [
+                mo.md(
+                    f"### Query Song: **{query_song['artist']} - {query_song['track']}** (*{query_song['album']}*)"
+                ),
+                mo.audio(query_song["path"]),
+                mo.md("#### Top 10 Most Similar Songs (Unique Artists):"),
+            ]
+        )
 
         # List of similar songs with scores and audio players, skipping already seen artists
         similar_items = []
-        seen_artists = {query_song['artist']}
+        seen_artists = {query_song["artist"]}
         rank = 1
         for idx in sorted_indices[i]:
             sim_song = df_tsne.iloc[idx]
-            if sim_song['artist'] in seen_artists:
+            if sim_song["artist"] in seen_artists:
                 continue
-            seen_artists.add(sim_song['artist'])
+            seen_artists.add(sim_song["artist"])
 
             score = similarity_scores[i, idx]
             similar_items.append(
-                mo.vstack([
-                    mo.md(f"**{rank}. {sim_song['artist']} - {sim_song['track']}** (*{sim_song['album']}*) — Similarity: `{score:.3f}`"),
-                    mo.audio(sim_song['path'])
-                ])
+                mo.vstack(
+                    [
+                        mo.md(
+                            f"**{rank}. {sim_song['artist']} - {sim_song['track']}** (*{sim_song['album']}*) — Similarity: `{score:.3f}`"
+                        ),
+                        mo.audio(sim_song["path"]),
+                    ]
+                )
             )
             rank += 1
             if rank > 10:
                 break
 
-        tabs[f"{query_song['artist'][:15]} - {query_song['track'][:15]}"] = mo.vstack([query_info, *similar_items])
+        tabs[f"{query_song['artist'][:15]} - {query_song['track'][:15]}"] = mo.vstack(
+            [query_info, *similar_items]
+        )
 
     mo.ui.tabs(tabs)
     return

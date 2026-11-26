@@ -36,8 +36,10 @@ PREFIX = "emb"
 CACHE_DIR = Path("cache")
 MODEL_PATH = Path("discogs-effnet-bsdynamic-1.onnx")
 # pinned revision + checksum, so the model can't change under existing embeddings
-MODEL_URL = ("https://huggingface.co/Heyian/discogs-effnet-onnx/resolve/"
-             "99d4b0ef1fd5d798f2afe049285c7d551e768e07/discogs-effnet-bsdynamic-1.onnx")
+MODEL_URL = (
+    "https://huggingface.co/Heyian/discogs-effnet-onnx/resolve/"
+    "99d4b0ef1fd5d798f2afe049285c7d551e768e07/discogs-effnet-bsdynamic-1.onnx"
+)
 MODEL_SHA256 = "a280825b334797cf677939db8cd5762c0392aedd0ca6415dbc1cd083f045e43c"
 SR = 16_000
 MAX_SEC = 60
@@ -60,6 +62,7 @@ def cache_path(rel_path: str) -> Path:
 
 
 # --- audio ---------------------------------------------------------------------
+
 
 def decode_mono_chunks(path: str) -> tuple[list[np.ndarray], int]:
     """Decode to mono float32 chunks at the file's native sample rate.
@@ -110,7 +113,7 @@ def slice_chunks(chunks: list[np.ndarray], lo: int, hi: int) -> np.ndarray:
     for chunk in chunks:
         a, b = max(lo, offset), min(hi, offset + len(chunk))
         if a < b:
-            out[a - lo:b - lo] = chunk[a - offset:b - offset]
+            out[a - lo : b - lo] = chunk[a - offset : b - offset]
         offset += len(chunk)
     return out
 
@@ -166,7 +169,7 @@ def load_middle(chunks: list[np.ndarray], sr: int) -> np.ndarray:
     n_native = sum(len(c) for c in chunks)
     if n_native == 0:
         return np.zeros(0, np.float32)
-    n_out = int(round(n_native * SR / sr))  # length of the full 16 kHz signal
+    n_out = round(n_native * SR / sr)  # length of the full 16 kHz signal
     n = min(MAX_SEC * SR, n_out)
     start = (n_out - n) // 2
     if sr == SR:  # no resampling needed
@@ -181,6 +184,7 @@ def load_middle(chunks: list[np.ndarray], sr: int) -> np.ndarray:
 
 
 # --- mel spectrogram -----------------------------------------------------------
+
 
 def hz_to_mel(f):  # Slaney mel scale: linear below 1 kHz, logarithmic above
     f = np.asarray(f, dtype=np.float64)
@@ -223,10 +227,11 @@ def patches(mel: np.ndarray) -> np.ndarray:
     if len(mel) < PATCH_SIZE:
         mel = np.pad(mel, ((0, PATCH_SIZE - len(mel)), (0, 0)))
     starts = range(0, len(mel) - PATCH_SIZE + 1, PATCH_HOP)
-    return np.stack([mel[s:s + PATCH_SIZE] for s in starts])  # [n_patches, 128, 96]
+    return np.stack([mel[s : s + PATCH_SIZE] for s in starts])  # [n_patches, 128, 96]
 
 
 # --- model -----------------------------------------------------------------------
+
 
 def model_file() -> Path:
     """Path to the ONNX model, downloaded on first use."""
@@ -285,7 +290,7 @@ def _process(rel_path: str) -> tuple[str, str]:
         emb = extract_emb(_model, str(MUSIC_DIR / rel_path))
         save_atomic(cache_path(rel_path), emb)
         return ("skipped" if emb is None else "ok"), ""
-    except Exception as ex:
+    except Exception as ex:  # noqa: BLE001 -- report and continue with other songs
         return "failed", str(ex)
 
 
@@ -300,8 +305,10 @@ def main(dry_run: bool, dump_path: str = "mpd_dump.csv") -> None:
 
     to_delete = sorted(cached - expected.keys())
     to_add = [expected[name] for name in expected.keys() - cached]
-    print(f"{len(cached)} cached, {len(expected)} songs: "
-          f"{len(to_add)} to compute, {len(to_delete)} to delete")
+    print(
+        f"{len(cached)} cached, {len(expected)} songs: "
+        f"{len(to_add)} to compute, {len(to_delete)} to delete"
+    )
 
     if dry_run:
         return
@@ -324,8 +331,10 @@ def main(dry_run: bool, dump_path: str = "mpd_dump.csv") -> None:
             elif status == "failed":
                 failed.append(rel_path)
                 tqdm.write(f"{rel_path} -> {err}")
-    print(f"computed {len(to_add) - len(failed) - len(skipped)}, "
-          f"skipped {len(skipped)} (hidden track / silence), failed {len(failed)}")
+    print(
+        f"computed {len(to_add) - len(failed) - len(skipped)}, "
+        f"skipped {len(skipped)} (hidden track / silence), failed {len(failed)}"
+    )
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ HISTORY_WEIGHTS). CSLS_K and CENTER are read from the environment like in the da
 import argparse
 import contextlib
 import io
+import itertools
 import random
 from collections import Counter
 from pathlib import Path
@@ -36,7 +37,7 @@ def simulate(db: SongDB, seed: str, weights: tuple[float, ...], length: int) -> 
         if len(queue) - pos - 1 < 3:
             recent = queue[-RECENT_N:]
             artists = set().union(*(db.artists[db.index[p]] for p in recent))
-            history = queue[: pos + 1][-len(weights):]
+            history = queue[: pos + 1][-len(weights) :]
             with contextlib.redirect_stdout(io.StringIO()):
                 on_song_start(client, db, history, artists, set(recent), weights)
         pos += 1
@@ -71,19 +72,30 @@ def main() -> None:
             playlists.append(simulate(db, args.seed, weights, args.length))
 
         sims = np.array([[embeddings[db.index[p]] @ seed_emb for p in pl] for pl in playlists])
-        steps = np.array([[embeddings[db.index[a]] @ embeddings[db.index[b]]
-                           for a, b in zip(pl, pl[1:])] for pl in playlists])
+        steps = np.array(
+            [
+                [
+                    embeddings[db.index[a]] @ embeddings[db.index[b]]
+                    for a, b in itertools.pairwise(pl)
+                ]
+                for pl in playlists
+            ]
+        )
         songs = Counter(p for pl in playlists for p in pl[1:])
         artists = [len(set().union(*(db.artists[db.index[p]] for p in pl))) for pl in playlists]
 
         print(f"=== weights {weights_arg} ===")
-        print("similarity to seed at position " + ", ".join(
-            f"{p}: {sims[:, p - 1].mean():.3f}" for p in checkpoints))
+        print(
+            "similarity to seed at position "
+            + ", ".join(f"{p}: {sims[:, p - 1].mean():.3f}" for p in checkpoints)
+        )
         print(f"mean similarity between consecutive songs: {steps.mean():.3f}")
         print(f"distinct artists per playlist: {np.mean(artists):.1f}")
         print(f"distinct songs over all runs: {len(songs)} / {sum(songs.values())}")
-        print("most frequent songs: " + ", ".join(
-            f"{label(db, p)} ({n}x)" for p, n in songs.most_common(3)))
+        print(
+            "most frequent songs: "
+            + ", ".join(f"{label(db, p)} ({n}x)" for p, n in songs.most_common(3))
+        )
         for i, pl in enumerate(playlists[: args.show], 1):
             print(f"\n  example {i}:")
             for n, p in enumerate(pl, 1):

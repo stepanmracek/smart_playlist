@@ -20,12 +20,14 @@ def main(out_path: str = "mpd_dump.csv") -> None:
         writer = csv.writer(f)
         writer.writerow(["artist", "album", "track", "path"])
         for song in songs:
-            writer.writerow([
-                tag(song, "artist"),
-                tag(song, "album"),
-                tag(song, "track"),
-                song["file"],
-            ])
+            writer.writerow(
+                [
+                    tag(song, "artist"),
+                    tag(song, "album"),
+                    tag(song, "track"),
+                    song["file"],
+                ]
+            )
     print(f"Wrote {len(songs)} songs to {out_path}")
 
 
